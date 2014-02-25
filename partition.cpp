@@ -127,6 +127,7 @@ TWPartition::TWPartition(void) {
 	Backup_Name = "";
 	Backup_FileName = "";
 	MTD_Name = "";
+        EMMC_Name = "";
 	Backup_Method = NONE;
 	Can_Encrypt_Backup = false;
 	Use_Userdata_Encryption = false;
@@ -203,7 +204,10 @@ bool TWPartition::Process_Fstab_Line(string Line, bool Display_Error) {
 				else
 					LOGINFO("Invalid block device on '%s', '%s', %i\n", Line.c_str(), ptr, index);
 				return 0;
-			} else {
+			} else if (sizeof(*ptr) > 5 && !strncmp(ptr, "emmc@", 5)) {
+                                EMMC_Name = ptr + 5;
+                                Find_EMMC_Block_Device(EMMC_name);
+                        } else {
 				Primary_Block_Device = ptr;
 				Find_Real_Block_Device(Primary_Block_Device, Display_Error);
 			}
@@ -723,6 +727,49 @@ bool TWPartition::Find_MTD_Block_Device(string MTD_Name) {
 			device[strlen(device)-1] = '\0';
 			if (sscanf(device,"mtd%d", &deviceId) == 1) {
 				sprintf(device, "/dev/block/mtdblock%d", deviceId);
+				Primary_Block_Device = device;
+				fclose(fp);
+				return true;
+			}
+		}
+	}
+	fclose(fp);
+
+	return false;
+}
+
+bool TWPartition::Find_EMMC_Block_Device(string EMMC_Name) {
+	FILE *fp = NULL;
+	char line[255];
+
+	fp = fopen("/proc/emmc", "rt");
+	if (fp == NULL) {
+		LOGERR("Device does not support /proc/emmc\n");
+		return false;
+	}
+
+	while (fgets(line, sizeof(line), fp) != NULL)
+	{
+		char device[32], label[32];
+		unsigned long size = 0;
+		char* fstype = NULL;
+		int deviceId;
+
+		sscanf(line, "%s %lx %*s %*c%s", device, &size, label);
+
+		// Skip header and blank lines
+		if ((strcmp(device, "dev:") == 0) || (strlen(line) < 8))
+			continue;
+
+		// Strip off the trailing " from the label
+		label[strlen(label)-1] = '\0';
+
+		if (strcmp(label, EMMC_Name.c_str()) == 0) {
+			// We found our device
+			// Strip off the trailing : from the device
+			device[strlen(device)-1] = '\0';
+			if (sscanf(device,"mmcblk0p%d", &deviceId) == 1) {
+				sprintf(device, "/dev/block/mmcblock0p%d", deviceId);
 				Primary_Block_Device = device;
 				fclose(fp);
 				return true;
